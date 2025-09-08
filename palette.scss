@@ -1,0 +1,247 @@
+@use 'sass:color';
+@use 'sass:math';
+@use 'sass:map';
+@use 'sass:list';
+
+@use 'calc';
+
+
+///
+/// https://stackoverflow.com/questions/30352063/sass-function-for-determining-the-luminance-of-a-color
+/// 휘도 얻기
+/// @param {color} $color 색상
+/// @return {Number} 휘도
+@function luminance($color) {
+    $rgb: (
+        'r': color.red($color),
+        'g': color.green($color),
+        'b': color.blue($color)
+    );
+
+    @each $channel, $value in $rgb {
+        $value: math.div($value, 255);
+
+        @if $value < 0.03928 {
+            $value: math.div($value, 12.92);
+        }
+        @else {
+            $value: math.div($value + .055, 1.055);
+            $value: math.pow($value, 2.4);
+        }
+
+        $rgb: map.merge($rgb, ($channel: $value));
+    }
+
+    @return 
+        (map.get($rgb, 'r') * .2126) + 
+        (map.get($rgb, 'g') * .7152) + 
+        (map.get($rgb, 'b') * .0722)
+    ;
+}
+
+
+
+
+/// https://yamoo9.gitbook.io/scss-mixins/utilities/colors/light-or-dark
+/// 어두운지 밝은지 리턴
+/// @param {color} $color 색상
+/// @return {String} dark light
+@function light-or-dark($color) {
+
+    @return if( lightness($color) < 50%, 'dark', 'light');
+}
+
+
+$steps: 0, 50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950, 1000;
+
+
+/// hue, saturation에 대한 팔레트 단계 계산
+/// 
+/// @param {String} $type - 계산 타입 ('hue' 또는 'saturation')
+/// @param {Number} $tweak [0] - 조정 강도 (0: 무채색, < 1: 연함, > 1: 진함)
+/// @param {Number} $std [500] - 기준 단계 (기준이 되는 색상 스탭)
+/// @return {Map} (step: tweak, ...)
+@function scale($type, $tweak: 0, $std: 500) {
+    $res: ();
+    $idx: list.index($steps, $std);
+
+    @if not $idx {
+        @error "색상 단계가 없습니다: #{$std}";
+    }
+
+    @each $step in $steps {
+        $i: list.index($steps, $step);
+        $diff: abs($i - $idx);
+        $v: 0;
+
+
+        @if $type == 'hue' {
+            $v: if($tweak != 0, $diff * $tweak, 0);
+        }
+        @else if $type == 'saturation' {
+            $v: if(
+                $tweak != 0,
+                math.round(
+                    ($diff + 1) * $tweak * ( 1 + math.div($diff, 10) )
+                ),
+                0
+            );
+        }
+        @else {
+            @error "스케일 계산 타입은 'hue', 'saturation' 만 가능합니다.";
+        }
+
+        @if $v > 100 {
+            $v: 100;
+        }
+
+        // $res: append($res, (step: $step, tweak: $v));
+        $res: map.merge($res,(
+            $step: $v,
+        ));
+    }
+
+    @return $res;
+}
+
+
+/// 밝기(lightness) 값을 기준으로 색상 팔레트를 분포시킵니다.
+/// 
+/// 최소값, 최대값, 기준값(std), 기준 밝기(light)를 기반으로 각 step 별 밝기를 계산합니다.
+/// 
+/// https://github.com/SimeonGriggs/tints.dev/blob/main/app/lib/scales.ts
+///
+/// @param {Number} $min [0] - 가장 어두운 단계의 밝기
+/// @param {Number} $max [100] - 가장 밝은 단계의 밝기
+/// @param {Number} $std [500] - 기준 단계
+/// @param {Number} $light - 기준 단계의 밝기 값
+/// @return {Map} (step: tweak, ...)
+@function distribute($min: 0, $max: 100, $std: 500, $light: 50) {
+
+    $res: ();
+
+    @each $step in $steps {
+        // 최소값
+        @if $step == 0 {
+            // $res: append($res, (step: 0, tweak: $max));
+            $res: map.merge($res,(
+                $step: $max,
+            ));
+        }
+        // 최대값
+        @else if $step == 1000 {
+            // $res: append($res, (step: $std, tweak: $light));
+            $res: map.merge($res,(
+                $step: $min,
+            ));
+        }
+        // 기준값
+        @else if $step == $std {
+            // $res: append($res, (step: 1000, tweak: $min));
+            $res: map.merge($res,(
+                $step: $light,
+            ));
+        }
+        // 계산
+        @else {
+
+            // $i: list.index($steps, $step);
+            $std-index: list.index($steps, $std);
+            $lower: if($step < $std, true, false);
+
+            $diff: abs( calc( ($step - $std) / 100 ) );
+
+            // js 와 결과가 같게 만들어야함
+            $total-diff: if(
+                $lower,
+                abs($std-index - list.index($steps, list.nth($steps, 1)) ) - 1,
+                abs($std-index - list.index($steps, list.nth($steps, list.length($steps) )) ) - 1
+            );
+
+            $up: if($lower, $max - $light, $light - $min);
+
+            $tweak: if(
+                $lower,
+                calc($up / $total-diff) * $diff + $light,
+                $light - calc($up / $total-diff) * $diff
+            );
+
+            // $res: append($res, (step: $step, tweak: round($tweak)));
+            $res: map.merge($res,(
+                $step: math.round($tweak),
+            ));
+        }
+    }
+    @return $res;
+}
+
+
+/// HEX 기준 팔레트 생성 함수
+/// 
+/// https://github.com/SimeonGriggs/tints.dev/blob/main/app/lib/createSwatches.ts
+///
+/// @param {Color} $color 기준 색상 (필수)
+/// @param {Map} $opts 옵션 맵 (선택)
+///   - step: 단계 리스트 (기본값: $steps)
+///   - std: 기준 단계 (기본값: 500)
+///   - sat-tweak: 채도 범위 조절 (기본값: 0.12)
+///   - light-min: 최소 밝기 (기본값: 10)
+///   - light-max: 최대 밝기 (기본값: 95)
+///   - use-light: light 사용?
+@function palette($color, $opts: ()) {
+
+    // 기본값 세팅
+    $step: if(map.has-key($opts, step), map.get($opts, step), $steps);
+    $std: if(map.has-key($opts, std), map.get($opts, std), 500);
+
+
+    $sat-tweak: if(map.has-key($opts, sat-tweak), map.get($opts, sat-tweak), 0.12);
+    $light-min: if(map.has-key($opts, light-min), map.get($opts, light-min), 10);
+    $light-max: if(map.has-key($opts, light-max), map.get($opts, light-max), 95);
+
+    $use-light: if(map.has-key($opts, use-light), map.get($opts, use-light), true);
+
+    // 범위 만들기
+    $hue-list: scale('hue', $sat-tweak, $std);
+    $saturation-list: scale('saturation', $sat-tweak, $std);
+
+    // 색상 구하기
+    $h: color.channel($color, "hue", $space: hsl);
+    $s: color.channel($color, "saturation", $space: hsl);
+    $s: calc.remove-unit($s);
+    $l: color.channel($color, "lightness", $space: hsl);
+    
+
+    // 휘도
+    $luminance: if($use-light, $l, luminance($color));
+
+    $distribute-list: distribute($light-min, $light-max, $std, $luminance);
+
+
+    // TODO: 500하고 1000이 뭔가 결과가 바뀜
+    $res: ();
+    @each $step, $tweak in $hue-list {
+    // @for $i from 1 through list.length($hue-list) {
+
+        $newH: calc.unsignedModulo($h + $tweak, 360);
+        $newS: clamp($s + map.get( $saturation-list, $step), 0, 100);
+        $newL: if(
+            $use-light,
+            map.get( $distribute-list, $step),
+            lightnessFromHSLum( $newH, $newS, map.get( $distribute-list, $step) )
+        );
+        // @debug $distribute-list;
+        $newL: clamp( calc.remove-unit( $newL ), 0, 100 );
+        // @debug nth( $steps, $i ), $newL;
+
+        $res : map.merge($res, (
+            $step: hsl(
+                $newH,
+                math.percentage( math.div( $newS, 100 ) ),
+                math.percentage( math.div( $newL, 100 ) )
+            )
+        ));
+    }
+
+    @return $res;
+}
