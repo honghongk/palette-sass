@@ -1,0 +1,33 @@
+@use 'sass:math';
+
+/// 음수 아닌 나머지
+/// @param {Number} $x 숫자
+/// @param {Number} $n 숫자
+/// @return {Number} 나머지
+@function unsignedModulo($x, $n)
+{
+    @return ( ( $x % $n ) + $n ) % $n;
+}
+
+
+
+
+
+/// x가 min ~ max 사이에 있도록
+/// @param {Number} $x 숫자
+/// @param {Number} $min 최소값
+/// @param {Number} $max 최대값
+/// @return {Nubmer} 범위 내 값
+// @function clamp($x, $min, $max)
+// {
+//     @return min( max( $x, $min ), $max );
+// }
+
+
+/// https://yamoo9.gitbook.io/scss-mixins/utilities/units/remove-unit
+/// 단위 없애기
+/// @param {Number} $v 값
+/// @return {Number} 단위 없는 값
+@function remove-unit($v) {
+    @return math.div($v, ($v * 0 + 1));
+}
